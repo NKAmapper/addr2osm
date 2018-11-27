@@ -375,16 +375,3 @@ if __name__ == '__main__':
 
 	time_spent = time.time() - start_time
 	message ('\nTime %i seconds (%i addresses per second)\n\n' % (time_spent, checked / time_spent))
-
-	# Wrap up and report
-
-	file_in.close()
-	file_out.close()
-
-	message ('  New addresses:                            %i (%i corrected street names)\n' % (added, corrected_new))
-	message ('  Updated existing address nodes:           %i\n' % modified)
-	message ('  Deleted existing address nodes:           %i\n' % deleted)
-	message ('  Remaining addresses in OSM without match: %i\n' % (len(osm_data['elements']) - deleted))
-
-	time_spent = time.time() - start_time
-	message ('\nTime %i seconds (%i addresses per second)\n\n' % (time_spent, checked / time_spent))
