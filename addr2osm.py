@@ -327,7 +327,7 @@ if __name__ == '__main__':
 					modified += 1
 					osm_line (u"  <%s id='%i' action='modify' timestamp='%s' uid='%i' user='%s' visible='true' version='%i' changeset='%i' lat='%f' lon='%f'>\n"\
 							% (modify_object['type'], modify_object['id'], modify_object['timestamp'], modify_object['uid'],\
-							modify_object['user'].encode('utf-8'), modify_object['version'], modify_object['changeset'],\
+							modify_object['user'], modify_object['version'], modify_object['changeset'],\
 							modify_object['lat'], modify_object['lon']))
 				else:
 					osm_id -= 1
