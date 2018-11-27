@@ -16,11 +16,11 @@ import sys
 import csv
 import math
 import time
-from bs4 import BeautifulSoup
+from xml.etree import ElementTree
 from itertools import tee
 
 
-version = "0.0.3"
+version = "0.1.0"
 
 
 escape_characters = {
@@ -158,7 +158,8 @@ if __name__ == '__main__':
 	if not(municipality_id in municipality):
 		sys.exit ('Municipality number %s not found' % municipality_id)
 
-	municipality_name = municipality[municipality_id].replace(u"Æ","A").replace(u"Ø","O").replace(u"Å","A").replace(u"æ","a").replace(u"ø","o").replace(u"å","a")
+	municipality_name = municipality[municipality_id].replace(u"Æ","A").replace(u"Ø","O").replace(u"Å","A")\
+													.replace(u"æ","a").replace(u"ø","o").replace(u"å","a")
 	length = municipality_name.find(" i ")
 	if length >= 0:
 		municipality_name = municipality_name[0:length]
@@ -171,15 +172,16 @@ if __name__ == '__main__':
 	message ("Loading street name corrections from Github rubund/addrnodeimport\n")
 	filename = "https://raw.githubusercontent.com/rubund/addrnodeimport/master/xml/corrections.xml"
 	file = urllib2.urlopen(filename)
-	soup = BeautifulSoup(file, features="html.parser")
+	tree = ElementTree.parse(file)
 	file.close()
 
+	root = tree.getroot()
 	corrections = {}
 	i = 0
-	for correction in soup.find_all('spelling'):
+	for correction in root.findall('spelling'):
 		i += 1
-		if i > 47:
-			corrections[correction['from'].replace(u"’’","'")] = correction['to']
+		if i > 47:  # Skip sami names
+			corrections[correction.get('from').replace(u"’’","'")] = correction.get('to')
 
 	# Load existing addr nodes in OSM for municipality, then recurse down to get any children/members
 
@@ -247,6 +249,7 @@ if __name__ == '__main__':
 				street = corrections[street]
 				corrected += 1
 
+			street = street.replace("'", u"’")
 			found_index = -1
 
 			# Loop existing addr objects from OSM to find exact matches (also for multiple matches)
@@ -265,7 +268,7 @@ if __name__ == '__main__':
 							found[checked] = True
 							del osm_data['elements'][found_index]  # Remove match to speed up looping
 
-	message ('\rChecking addresses... %i (%i corrected street names)\n' % (checked, corrected))
+	message ('\rChecking addresses... %i (%i corrected street names)\n' % (checked + 1, corrected))
 
 
 	# 2nd pass: Find all remaining "pure" address nodes at same location which will be updated with new address information
@@ -301,6 +304,7 @@ if __name__ == '__main__':
 				else:
 					street_corrected = False
 
+				street = street.replace("'", u"’")
 				found_index = -1
 				modify = False
 
@@ -358,6 +362,19 @@ if __name__ == '__main__':
 			osm_element (osm_object, delete=False)
 
 	osm_line ("</osm>")
+
+	# Wrap up and report
+
+	file_in.close()
+	file_out.close()
+
+	message ('  New addresses:                            %i (%i corrected street names)\n' % (added, corrected_new))
+	message ('  Updated existing address nodes:           %i\n' % modified)
+	message ('  Deleted existing address nodes:           %i\n' % deleted)
+	message ('  Remaining addresses in OSM without match: %i\n' % (len(osm_data['elements']) - deleted))
+
+	time_spent = time.time() - start_time
+	message ('\nTime %i seconds (%i addresses per second)\n\n' % (time_spent, checked / time_spent))
 
 	# Wrap up and report
 
