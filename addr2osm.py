@@ -373,7 +373,7 @@ if __name__ == '__main__':
 				modify = False
 
 				# Loop existing addr objects to find first close match with "pure" address node, to be modified
-				# Consider the match close if distance is less than 1/1000 degrees
+				# Consider the match close if distance is less than 1/10,000 degrees
 
 				for osm_object in osm_data['elements']:
 					found_index += 1
@@ -381,7 +381,7 @@ if __name__ == '__main__':
 
 						distance = math.sqrt((osm_object['lat'] - latitude) ** 2 + (osm_object['lon'] - longitude) ** 2)
 
-						if distance < 0.001:
+						if distance < 0.0001:
 							tag = osm_object['tags']
 							if ('addr:housenumber' in tag) and ('addr:postcode' in tag) and ('addr:city' in tag):
 
