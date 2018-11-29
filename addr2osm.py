@@ -21,7 +21,7 @@ from xml.etree import ElementTree
 from itertools import tee
 
 
-version = "0.2.0"
+version = "0.3.0"
 
 
 escape_characters = {
@@ -82,6 +82,13 @@ def find_element (id_no):
 		if element['id'] == id_no:
 			return element
 	return None
+
+
+# Key for sorting osm objects
+
+def addr_sort (element):
+
+	return element['tags']['addr:street']
 
 
 # Output osm object to file with all tags and children/members from Overpass
@@ -169,7 +176,7 @@ if __name__ == '__main__':
 	municipality = {}
 	for mun in municipality_data['containeditems']:
 		if mun['status'] == "Gyldig":
-			municipality[mun['codevalue']] = mun['label']
+			municipality[mun['codevalue']] = mun['label'].strip()
 
 	# Find municipality name for given municipality number from program parameter
 
@@ -201,9 +208,9 @@ if __name__ == '__main__':
 		if i > 47:  # Skip sami names
 			corrections[correction.get('from').replace(u"’’","'")] = correction.get('to')
 
-	# Load existing addr nodes in OSM for municipality, then recurse down to get any children/members
+	# Load existing addr nodes in OSM for municipality
 
-	message ("Loading existing addresses for %s %s from OSM... " % (municipality_id, municipality[municipality_id]))
+	message ("Loading existing addresses for %s %s from OSM Overpass... " % (municipality_id, municipality[municipality_id]))
 	query = '[out:json][timeout:60];(area[ref=%s][admin_level=7];)->.a;(node["addr:street"](area.a););out center meta;' % (municipality_id)
 	if debug:
 		query = query.replace("node", "nwr")
@@ -211,6 +218,35 @@ if __name__ == '__main__':
 	file = urllib2.urlopen("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query))
 	osm_data = json.load(file)
 	file.close()
+
+	# Sort list and make index to speed up matching. Also set flag if "pure" address node
+
+	osm_data['elements'].sort(key=addr_sort)
+
+	street_index = dict()
+	last_street = osm_data['elements'][0]['tags']['addr:street']
+	street_index[last_street] = {'from': 0, 'to': 0}
+
+	i = -1
+	for element in osm_data['elements']:
+		i += 1
+		tag = element['tags']
+
+		this_street = element['tags']['addr:street']
+		if this_street != last_street:
+			street_index[last_street]['to'] = i - 1
+			street_index[this_street] = {'from': i, 'to': 0}
+			last_street = this_street
+
+		# Flag if "pure" address node for improved speed later
+		if element['type'] == "node" and ('addr:housenumber' in tag) and ('addr:postcode' in tag) and ('addr:city' in tag)\
+			and ((len(tag) == 4) or ((len(tag) == 5) and ('addr:country' in tag))) :
+			element['pure'] = True
+		else:
+			element['pure'] = False
+
+	street_index[last_street]['to'] = i
+
 	message ("%i" % len(osm_data['elements']))
 
 	# Recurse up to get any parents
@@ -243,8 +279,6 @@ if __name__ == '__main__':
 	else:
 		osm_children = { 'elements': [] }
 
-	message("\n")
-
 	# Load latest address file for municipality from Kartverket
 
 	filename = "Basisdata_%s_%s_4258_MatrikkelenVegadresse_CSV" % (municipality_id, municipality_name)
@@ -264,6 +298,7 @@ if __name__ == '__main__':
 	# Initiate loop
 
 	osm_id = -1000
+	matched = 0
 	corrected = 0
 	added = 0
 	modified = 0
@@ -271,10 +306,10 @@ if __name__ == '__main__':
 
 	found = []  # Index list which Will contain True for matched adresses from Kartverket 
 
-	message ('\rChecking addresses...')
+	message ('\nChecking addresses...')
 
-	# Loop all addresses from Kartveret twice:
-	# 1st pass: Find all 100% matches and remove from OSM list
+	# 1st pass:
+	# Find all 100% matches betweem Kartverket and OSM
 
 	checked = -1
 
@@ -283,8 +318,8 @@ if __name__ == '__main__':
 		checked += 1
 		found.append(False)
 
-		if checked % 100 == 0:
-			message ('\rChecking addresses... %i' % checked)
+		if (checked + 1) % 1000 == 0:
+			message ('\rChecking addresses... %i' % (checked + 1))
 
 		if row['adressenavn']:
 
@@ -299,63 +334,77 @@ if __name__ == '__main__':
 			if street in corrections:
 				street = corrections[street]
 				corrected += 1
-
 			street = street.replace("'", u"’")
-			found_index = -1
+
+			if not(street in street_index):
+				continue
+
+			found_index = street_index[street]['from'] - 1
 
 			# Loop existing addr objects from OSM to find first exact match of "pure" address node
 
-			for osm_object in osm_data['elements']:
+			for osm_object in osm_data['elements'][ street_index[street]['from'] : street_index[street]['to'] + 1 ]:
 				found_index += 1
-
 				tag = osm_object['tags']
-				if (osm_object['type'] == "node") and (len(tag) == 4) and ('addr:housenumber' in tag) and ('addr:postcode' in tag) and ('addr:city' in tag):
-					if (housenumber == tag['addr:housenumber']) and (street == tag['addr:street']) and (postcode == tag['addr:postcode'])\
-						 and (city == tag['addr:city']):
 
-						found[checked] = True
-						distance = math.sqrt((osm_object['lat'] - latitude) ** 2 + (osm_object['lon'] - longitude) ** 2)
+				if (osm_object['pure']) and (housenumber == tag['addr:housenumber']) and (street == tag['addr:street'])\
+					 and (postcode == tag['addr:postcode']) and (city == tag['addr:city']):
 
-						# Modify object coordinates if it has been relocated. Keep the existing node if it has parents
+					found[checked] = True
+					matched += 1
+					distance = math.sqrt((osm_object['lat'] - latitude) ** 2 + (osm_object['lon'] - longitude) ** 2)
 
-						if distance > 0.00001:
+					# Modify object coordinates if it has been relocated. Keep the existing node if it has parents
 
-							if osm_object['id'] in parents:
-								modify_object = osm_object.copy()
-								modify_object['tags'] = {}
-								osm_element (modify_object, action="modify")  # Keep empty node if parents
-								modified += 1
+					if (distance > 0.00001) or ('addr:country' in tag):
 
-								osm_object['lat'] = latitude
-								osm_object['lon'] = longitude
-								osm_element (osm_object, action="new")  # Create new addr node
-								added += 1
+						if osm_object['id'] in parents:
+							modify_object = osm_object.copy()
+							modify_object['tags'] = {}
+							osm_element (modify_object, action="modify")  # Keep empty node if parents
+							modified += 1
 
-							else:
-								osm_object['lat'] = latitude
-								osm_object['lon'] = longitude
-								osm_element (osm_object, action="modify")
-								modified += 1
+							osm_object['lat'] = latitude
+							osm_object['lon'] = longitude
+							result = osm_object['tags'].pop('addr:country', None)
+							osm_element (osm_object, action="new")  # Create new addr node
+							added += 1
 
-						del osm_data['elements'][found_index]  # Remove match to speed up looping
-						break
+						else:
+							osm_object['lat'] = latitude
+							osm_object['lon'] = longitude
+							result = osm_object['tags'].pop('addr:country', None)
+							osm_element (osm_object, action="modify")
+							modified += 1
 
-	message ('\rChecking addresses... %i (%i corrected street names)\n' % (checked + 1, corrected))
+					for index in street_index.itervalues():
+						if index['from'] > found_index:
+							index['from'] -= 1
+						if index['to'] >= found_index:
+							index['to'] -= 1
 
+					del osm_data['elements'][found_index]  # Remove match to speed up looping
+					break
 
-	# 2nd pass: Find all remaining "pure" address nodes at same location which will be updated with new address information
+	message ('\rChecking addresses... %i\n' % (checked + 1))
+	message ('  Addresses with full match:                %i\n' % matched)
+	message ('  Addresses without full match:             %i\n' % (checked - matched + 1))
+	message ('  Addresses with corrected street names:    %i\n' % corrected)
+
+	# 2nd pass:
+	# Find all remaining "pure" address nodes at same location which will be updated with new address information
 	# "Pure" address node are nodes which contain all of addr:street, addr:housenumber, addr:postcode, addr:city and no other tags
 	# Remaining non-matched addresses are output as new address nodes
 
 	message ("\nCompleting file %s...\n" % filename)
 
-	i = -1
+	checked2 = -1
 	for row in addr_table2:
-		i += 1
+		checked2 += 1
 
 		if row['adressenavn']:
 
-			if not(found[i]):
+			if not(found[checked2]):
 
 				latitude = float(row['Nord'])
 				longitude = float(row['Øst'])
@@ -373,11 +422,11 @@ if __name__ == '__main__':
 				modify = False
 
 				# Loop existing addr objects to find first close match with "pure" address node, to be modified
-				# Consider the match close if distance is less than 1/10,000 degrees
+				# Consider the match close if distance is less than 1/1000 degrees
 
 				for osm_object in osm_data['elements']:
 					found_index += 1
-					if (len(osm_object['tags']) == 4) and (osm_object['type'] == "node"):
+					if osm_object['pure']:
 
 						distance = math.sqrt((osm_object['lat'] - latitude) ** 2 + (osm_object['lon'] - longitude) ** 2)
 
@@ -394,6 +443,7 @@ if __name__ == '__main__':
  
 				if modify:
 					modify_object = keep_object.copy()
+					result = modify_object['tags'].pop('addr:country', None)
 				else:
 					modify_object = {}
 					modify_object['type'] = "node"
@@ -426,15 +476,14 @@ if __name__ == '__main__':
 					osm_element (modify_object, action="new")
 					added += 1
 
-
+	# 3rd pass:
 	# Output copy of remaining, non-matched addr objects to file (candidates for manual deletion of address tags and potentially also addr nodes)
 	# Delete remaining "pure" addr nodes (they got no match)
 
 	for osm_object in osm_data['elements']:
 
 		# Delete "pure" address node
-		if (osm_object['type'] == "node") and (len(osm_object['tags']) == 4) and\
-			('addr:housenumber' in osm_object['tags']) and ('addr:postcode' in osm_object['tags']) and ('addr:city' in osm_object['tags']):
+		if osm_object['pure']:
 			deleted += 1
 			osm_element (osm_object, action="delete")
 		elif debug:
