@@ -28,10 +28,12 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
 * Address nodes will be created if they do not currently exist in OSM, even if the address already is contained in e.g. a building or an amenity node
 * Address nodes will be relocated according to the lates Kartverket coordinates, if necessary
 * Remaining/not matched "pure" address nodes (without any other tags) will be reused (nearby location) or deleted
+* The addr:country will be disregarded and removed
 * The following elements will not be touched:
   - Ways and relations
   - Nodes containing other tags or incomplete address tags (not all 4 addr tags)
-  - Nodes which are members of ways or relations (however complete address tags from those nodes will be moved to new address nodes) 
+  - Nodes which are members of ways or relations (however complete address tags from those nodes will be moved to new address nodes)
+* Code is optimized to near linear complexity with performance better than 1000 addresses/second in testing
 
 ### Data sources used
 
