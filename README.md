@@ -9,7 +9,7 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
      - 4 digit Norwegian municipality code, or
      - 2 digit county code for all municipalities within a county, or
      - "99" for all municipalities in Norway
-   * Will produce an OSM file with the name *Address import "code" "municipality".osm*
+   * Will produce OSM file with the name *Address import "code" "municipality".osm*
    * Add `-manual` for including copy of "surplus" address nodes, ways and relations not touched by the program + for including DELETE tag instead of deleting node for easier verification
   
 2. Inspect the file in JOSM:
@@ -36,12 +36,16 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
   - Ways and relations
   - Nodes containing other tags or incomplete address tags (not all 4 addr tags)
   - Nodes which are members of ways or relations (however complete address tags from those nodes will be moved to new address nodes)
-* Code is optimized to near linear complexity with performance at 500-1500 addresses/second in testing
+* Code is optimized to near linear complexity with performance at 500-1500 addresses/second in testing (slower with "-manual")
+* The code will be expanded to upload automatically to OSM
 
 ### Test run
 
-* OSM-files for all Norwegian municipalities are avilable [here](https://drive.google.com/open?id=1TzUggXrU0XP-TTxaXPsmRKSnMlR7622Y)
+* OSM-filesfor all Norwegian municipalities are avilable [here](https://drive.google.com/open?id=1TzUggXrU0XP-TTxaXPsmRKSnMlR7622Y)
+* The files contain changes that would have been done for a real update + copy of remaining/surplus nodes, ways and realations which contain addr-tags but did not get a match
+* Objects which did get a clear address match and no other modifications are not included
 * For inspection only - please do not upload to OSM
+* Please see recommendations for searches above
 * Summary table: [Excel sheet](https://drive.google.com/open?id=10oF3YECS39WRrXiO_pzE9sxVtxH8yVOx)
 
 ### Data sources used
