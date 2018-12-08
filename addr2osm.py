@@ -17,11 +17,10 @@ import sys
 import csv
 import math
 import time
-from xml.etree import ElementTree
 from itertools import tee
 
 
-version = "0.4.0"
+version = "0.5.0"
 request_header = {"User-Aget": "addr2osm/" + version}
 
 
@@ -59,6 +58,21 @@ def osm_line (value):
 
 	value = value.encode('utf-8')
 	file_out.write (value)
+
+
+# Open file/api, try up to 5 times
+
+def open_url (url):
+
+	tries = 1
+	while tries < 5:
+		tries += 1
+		try:
+			return urllib2.urlopen(url)
+		except HTTPError, e:
+			if e.code == 429:
+				time.sleep(5);
+	raise
 
 
 # Output message
@@ -115,6 +129,66 @@ def addr_sort (element):
 		return element['tags']['addr:street']
 	else:
 		return u"ÅÅÅ"
+
+
+# Fix street name initials/dots and spacing. Return also True if anything changed
+
+# Dr.Gregertsens vei -> Dr. Gregertsens vei
+# Arne M Holdens vei -> Arne M. Holdens vei
+# O G Hauges veg -> O.G. Hauges veg
+# C. A. Pihls gate -> C.A. Pihls gate
+
+def fix_street_name (name):
+
+	# First test exceptions
+
+	if name in corrections:
+		return (corrections[name], True)
+
+	# Loop characters in street name and make automatic corrections for dots and spacing
+
+	new_name = ""
+	length = len(name)
+
+	i = 0
+	word = 0  # Length of last word while looping street name
+
+	while i < length - 3:  # Avoid last 3 characters to enable forward looking tests
+
+		if name[i] == ".":
+			if (name[i + 1] == " ") and (name[i + 3] in ["."," "]):  # C. A. Pihls gate
+				new_name = new_name + "." + name[i + 2]
+				i += 2
+				word = 1
+			elif name[i + 1] != " " and not(name[i + 2] in ["."," "]):  # Dr.Gregertsens vei
+				new_name = new_name + ". "
+				word = 0
+			else:
+				new_name = new_name + "."
+				word = 0
+
+		elif name[i] == " ":
+			if  word == 1:
+				if name[i + 2] in [" ","."]:  # O G Hauges veg
+					new_name = new_name + "."
+				else:
+					new_name = new_name + ". "  # K Sundts vei
+			else:
+				new_name = new_name + " "
+			word = 0
+
+		else:
+			new_name = new_name + name[i]
+			word += 1
+
+		i += 1
+
+	new_name = new_name + name[i:i + 3]
+
+	if name != new_name:
+		return (new_name, True)
+	else:
+		return (name, False)
 
 
 # Output osm object to file with all tags and children/members from Overpass
@@ -210,7 +284,7 @@ def process_municipality (municipality_id):
 		query = query.replace('node["addr:street"]', 'nwr[~"addr:"~".*"]')  # Any addr tag
 
 	request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
-	file = urllib2.urlopen(request)
+	file = open_url(request)
 	osm_data = json.load(file)
 	file.close()
 
@@ -256,7 +330,7 @@ def process_municipality (municipality_id):
 
 	query = query.replace("out center meta", "<;out meta")
 	request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
-	file = urllib2.urlopen(request)
+	file = open_url(request)
 	osm_parents = json.load(file)
 	file.close()
 
@@ -278,7 +352,7 @@ def process_municipality (municipality_id):
 	if debug:
 		query = query.replace("<;out meta", ">;out meta")
 		request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
-		file = urllib2.urlopen(request)
+		file = open_url(request)
 		osm_children = json.load(file)
 		file.close()
 		message (" +%i child objects" % (len(osm_children['elements'])))
@@ -292,7 +366,7 @@ def process_municipality (municipality_id):
 	filename = "Basisdata_%s_%s_4258_MatrikkelenVegadresse_CSV" % (municipality_id, municipality_name)
 	filename = filename.replace(" ", "_")
 	message ("\nLoading address file %s from Kartverket\n" % filename)
-	file_in = urllib2.urlopen("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenVegadresse/CSV/" + filename + ".zip")
+	file_in = open_url("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenVegadresse/CSV/" + filename + ".zip")
 	zip_file = zipfile.ZipFile(StringIO.StringIO(file_in.read()))
 	csv_file = zip_file.open(filename + "/matrikkelenVegadresse.csv")
 	addr_table1, addr_table2 = tee(csv.DictReader(csv_file, delimiter=";"), 2)
@@ -344,10 +418,9 @@ def process_municipality (municipality_id):
 			postcode = row['postnummer']
 			city = row['poststed'].decode('utf-8').title().replace(" I "," i ")
 
-			if street in corrections:
-				street = corrections[street]
+			street, any_change = fix_street_name(street) 
+			if any_change:
 				corrected += 1
-			street = street.replace("'", u"’")
 
 			if not(street in street_index):
 				continue
@@ -430,10 +503,8 @@ def process_municipality (municipality_id):
 				postcode = row['postnummer']
 				city = row['poststed'].decode('utf-8').title().replace(" I "," i ")
 
-				if street in corrections:
-					street = corrections[street]
+				street, any_change = fix_street_name(street) 
 
-				street = street.replace("'", u"’")
 				found_index = -1
 				modify = False
 
@@ -545,7 +616,7 @@ if __name__ == '__main__':
 	# Load municipality id's and names from Kartverket code list
 
 	message ("Loading municipality and county codes from Kartverket\n")
-	file = urllib2.urlopen("https://register.geonorge.no/api/sosi-kodelister/kommunenummer.json?")
+	file = open_url("https://register.geonorge.no/api/sosi-kodelister/kommunenummer.json?")
 	municipality_data = json.load(file)
 	file.close()
 
@@ -556,7 +627,7 @@ if __name__ == '__main__':
 
 	# Load county id's and names from Kartverket code list
 
-	file = urllib2.urlopen("https://register.geonorge.no/api/sosi-kodelister/fylkesnummer.json?")
+	file = open_url("https://register.geonorge.no/api/sosi-kodelister/fylkesnummer.json?")
 	county_data = json.load(file)
 	file.close()
 
@@ -568,18 +639,11 @@ if __name__ == '__main__':
 	# Load corrections from Github, skip the first 47 sami corrections
 
 	message ("Loading street name corrections from Github rubund/addrnodeimport\n")
-	filename = "https://raw.githubusercontent.com/rubund/addrnodeimport/master/xml/corrections.xml"
-	file = urllib2.urlopen(filename)
-	tree = ElementTree.parse(file)
+	filename = "https://raw.githubusercontent.com/NKAmapper/addr2osm/master/corrections.json"
+	file = open_url(filename)
+	corrections = json.load(file)
 	file.close()
 
-	root = tree.getroot()
-	corrections = {}
-	i = 0
-	for correction in root.findall('spelling'):
-		i += 1
-		if i > 47:  # Skip sami names
-			corrections[correction.get('from').replace(u"’’","'")] = correction.get('to')
 
 	# Process either one municipality or all municipalities in one county
 
