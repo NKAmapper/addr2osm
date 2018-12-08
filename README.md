@@ -36,6 +36,7 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
   - Ways and relations
   - Nodes containing other tags or incomplete address tags (not all 4 addr tags)
   - Nodes which are members of ways or relations (however complete address tags from those nodes will be moved to new address nodes)
+* Street names are fixed when needed to get punctuation and spacing right. Errors in street names are fixed according to translation table in [addr2osm/corrections.json](https://github.com/NKAmapper/addr2osm/blob/master/corrections.json).
 * Code is optimized to near linear complexity with performance at 500-1500 addresses/second in testing (slower with "-manual")
 * The code will be expanded to upload automatically to OSM
 
@@ -51,6 +52,6 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
 ### Data sources used
 
 * [Kartverket SOSI municipality codes](https://register.geonorge.no/sosi-kodelister/kommunenummer)
-* [Github addrnodeimport street name corrections](https://github.com/rubund/addrnodeimport/blob/master/xml/corrections.xml)
 * [Kartverket street address files](https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenVegadresse/CSV/)
 * [Overpass API](http://overpass-api.de)
+* [addr2osm/corrections.json](https://github.com/NKAmapper/addr2osm/blob/master/corrections.json) - Street name corrections, based on [Github addrnodeimport street name corrections](https://github.com/rubund/addrnodeimport/blob/master/xml/corrections.xml)
