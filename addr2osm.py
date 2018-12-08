@@ -20,7 +20,7 @@ import time
 from itertools import tee
 
 
-version = "0.5.0"
+version = "0.5.1"
 request_header = {"User-Agent": "addr2osm/" + version}
 
 
@@ -71,7 +71,7 @@ def open_url (url):
 			return urllib2.urlopen(url)
 		except urllib2.HTTPError, e:
 			if e.code == 429:
-				time.sleep(5);
+				time.sleep(5)
 	raise
 
 
