@@ -21,7 +21,7 @@ from itertools import tee
 
 
 version = "0.5.0"
-request_header = {"User-Aget": "addr2osm/" + version}
+request_header = {"User-Agent": "addr2osm/" + version}
 
 
 escape_characters = {
