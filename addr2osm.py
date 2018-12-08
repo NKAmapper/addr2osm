@@ -638,7 +638,7 @@ if __name__ == '__main__':
 
 	# Load corrections from Github, skip the first 47 sami corrections
 
-	message ("Loading street name corrections from Github rubund/addrnodeimport\n")
+	message ("Loading street name corrections from Github addr2osm/corrections.json\n")
 	filename = "https://raw.githubusercontent.com/NKAmapper/addr2osm/master/corrections.json"
 	file = open_url(filename)
 	corrections = json.load(file)
