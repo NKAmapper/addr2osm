@@ -533,7 +533,7 @@ if __name__ == '__main__':
 	message ("\n-- addr2osm v%s --\n" % version)
 
 	if (len(sys.argv) == 2) and (len(sys.argv[1]) in [2,4]) and sys.argv[1].isdigit():
-		municipality_id = sys.argv[1]
+		entity = sys.argv[1]
 		debug = False
 	elif (len(sys.argv) == 3) and (len(sys.argv[1]) in [2,4]) and sys.argv[1].isdigit() and (sys.argv[2] == "-manual"):
 		entity = sys.argv[1]
