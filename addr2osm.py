@@ -69,7 +69,7 @@ def open_url (url):
 		tries += 1
 		try:
 			return urllib2.urlopen(url)
-		except HTTPError, e:
+		except urllib2.HTTPError, e:
 			if e.code == 429:
 				time.sleep(5);
 	raise
