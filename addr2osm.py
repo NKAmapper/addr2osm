@@ -2,10 +2,11 @@
 # -*- coding: utf8
 
 # ADDR2OSM.PY
-# Loads addresses from Kartverket and creates an osm file with updates
-# Usage: "python addr2osm.py <kommune/fylkesnummer> [-manual]""
+# Loads addresses from Kartverket and creates an osm file with updates, alternatively uploads to OSM
+# Usage: "python addr2osm.py <kommunenummer> [-manual|-upload]""
 # Creates "new_addresses_xxxx_xxxxxx.osm" file
 # Optional "-manual" parameter will add DELETE tag instead of deleting node + include surplus addr objects
+# Optional "-upload" parameter will ask for username/password and upload to OSM
 
 
 import json
@@ -17,12 +18,16 @@ import sys
 import csv
 import math
 import time
+import copy
 from itertools import tee
 
 
-version = "0.5.1"
+version = "0.6.0"
+debug = True
 request_header = {"User-Agent": "addr2osm/" + version}
 
+osm_api = "https://api.openstreetmap.org/api/0.6/"  # Production database
+#osm_api = "https://master.apis.dev.openstreetmap.org/api/0.6/"  # Test database
 
 escape_characters = {
 	'"': "&quot;",
@@ -43,13 +48,18 @@ def escape (value):
 
 # Generate one osm tag
 
-def osm_tag (key, value):
+def osm_tag (key, value, action):
 
 	value = value.strip()
 	if value:
 		value = escape(value).encode('utf-8')
 		key = escape(key).encode('utf-8')
-		file_out.write ("    <tag k='%s' v='%s' />\n" % (key, value))
+		line = "    <tag k='%s' v='%s' />\n" % (key, value)
+		
+		if not(upload):
+			file_out.write (line)
+		elif action != "output":
+			osm_upload ("  " + line)
 
 
 # Generate one oms line
@@ -60,19 +70,33 @@ def osm_line (value):
 	file_out.write (value)
 
 
-# Open file/api, try up to 5 times
+# Open file/api, try up to 5 times, each time with double sleep time
 
 def open_url (url):
 
-	tries = 1
+	tries = 0
 	while tries < 5:
-		tries += 1
 		try:
 			return urllib2.urlopen(url)
 		except urllib2.HTTPError, e:
-			if e.code == 429:
-				time.sleep(5)
-	raise
+			if e.code in [429, 503, 504]:  # Too many requests, Service unavailable or Gateway timed out
+				if tries  == 0:
+					message ("\n") 
+				message ("\rRetry %i... " % (tries + 1))
+				time.sleep(5 * (2**tries))
+				tries += 1
+			elif e.code in [401, 403]:
+				message ("\nHTTP error %i: %s\n" % (e.code, e.reason))  # Unauthorized or Blocked
+				sys.exit()
+			elif e.code in [400, 409, 412]:
+				message ("\nHTTP error %i: %s\n" % (e.code, e.reason))  # Bad request, Conflict or Failed precondition
+				message ("%s\n" % str(e.read()))
+				sys.exit()
+			else:
+				raise
+	
+	message ("\nHTTP error %i: %s\n" % (e.code, e.reason))
+	sys.exit()
 
 
 # Output message
@@ -94,7 +118,7 @@ def log (*args, **kwargs):
 		file_log = open(filename, "w")
 		output_text = "County;County name;Municipality;Municipality name;"\
 						+ "OSM addresses;OSM parents;OSM children;Kartverket addresses;Kartverket street names;"\
-						+ "Full match;Not full match;Corrected street names;New;Updated;Deleted;Remaining;Time\n"
+						+ "Full match;Not full match;Corrected street names;New;Updated;Deleted;Remaining;Uploaded;Not uploadedTime\n"
 		file_log.write (output_text)
 	elif ("action" in kwargs) and (kwargs['action'] == "close"):
 		file_log.close()
@@ -104,11 +128,37 @@ def log (*args, **kwargs):
 				file_log.write(data.encode('utf-8'))
 			else:
 				file_log.write(str(data))
-			if not(("action" in kwargs) and (kwargs['action'] == "end_line")):
+			if not(("action" in kwargs) and (kwargs['action'] == "endline")):
 				file_log.write(";")
 		if ("action" in kwargs) and (kwargs['action'] == "endline"):
 				file_log.write("\n")
 
+
+# Output changeset line in OsmChange file format + maintain log file
+
+def osm_upload (*args, **kwargs):
+
+	global file_upload
+	global changeset_data
+
+	if ("action" in kwargs) and (kwargs['action'] == "open"):  # Opens file
+		if debug:
+			file_upload = open("upload_addr2osm.xml", "w")
+
+	elif ("action" in kwargs) and (kwargs['action'] == "close"):  # Closes file
+		if debug:
+			file_upload.close()
+
+	else:
+		if type(args[0]) == unicode:
+			line = args[0].encode('utf-8')
+			changeset_data += line
+			if debug:
+				file_upload.write(line)
+		else:
+			changeset_data += args[0]
+			if debug:
+				file_upload.write(args[0])
 
 
 # Search for and return osm child/member object in "recurse down" list from Overpass
@@ -197,53 +247,81 @@ def fix_street_name (name):
 def osm_element (element, action):
 
 	global osm_id
+	global uploaded
+	global changeset_id
 
 	if element:  # None if recurse down more than 1 level
 
+		action_text = ""
 		if action == "delete":
-			if debug:
-				action = ""
+			if manual:
 				element['tags']['DELETE'] = "yes"
 			else:
-				action = "action='delete' "
+				action_text = "action='delete' "
 		elif action == "modify":
-			action = "action='modify' "
-		elif action == "output":
-			action = ""
+			action_text = "action='modify' "
 
-		if action == "new":
+		if upload and (action != "output"):
+			osm_upload ("  <%s>\n" % action )
+
+		if action == "create":
 			osm_id -= 1
-			osm_line ("  <node id='%i' action='modify' visible='true' lat='%f' lon='%f'>\n" % (osm_id, element['lat'], element['lon']))
+			if upload:
+				line = "    <node id='%i' changeset='%s' version='1' lat='%f' lon='%f'>\n" % (osm_id, changeset_id, element['lat'], element['lon'])
+				osm_upload (line)
+			else:
+				line = "  <node id='%i' action='modify' visible='true' lat='%f' lon='%f'>\n" % (osm_id, element['lat'], element['lon'])
+				osm_line ("  " + line)
+
 		else:
-			header = u"  <%s id='%i' %stimestamp='%s' uid='%i' user='%s' visible='true' version='%i' changeset='%i'"\
-					% (element['type'], element['id'], action, element['timestamp'], element['uid'], escape(element['user']),\
+			line = u"  <%s id='%i' %stimestamp='%s' uid='%i' user='%s' visible='true' version='%i' changeset='%i'"\
+					% (element['type'], element['id'], action_text, element['timestamp'], element['uid'], escape(element['user']),\
 					element['version'], element['changeset'])
 			if element['type'] == "node":
-				header = header + " lat='%f' lon='%f'>\n" % (element['lat'], element['lon'])
+				line_end = " lat='%f' lon='%f'>\n" % (element['lat'], element['lon'])
 			else:
-				header = header + ">\n"
-			osm_line (header)
+				line_end = ">\n"
+
+			if not(upload):
+				osm_line (line + line_end)
+			elif action != "output":
+				line = u"    <%s id='%i' changeset='%s' version='%i'" % (element['type'], element['id'], changeset_id, element['version'])
+				osm_upload (line + line_end)
 
 		if "nodes" in element:
 			for node in element['nodes']:
-				osm_line ("    <nd ref='%i' />\n" % node)
+				line = "    <nd ref='%i' />\n" % node
+				if not(upload):
+					osm_line (line)
+				elif action != "output":
+					osm_upload ("  " + line)
 
 		if "members" in element:
 			for member in element['members']:
-				osm_line ("    <member type='%s' ref='%i' role='%s' />\n" % (escape(member['type']), member['ref'], member['role']))
+				line = "    <member type='%s' ref='%i' role='%s' />\n" % (escape(member['type']), member['ref'], member['role'])
+				if not(upload):
+					osm_line (line)
+				elif action != "output":
+					osm_upload ("  " + line)
 
 		if "tags" in element:
 			for key, value in element['tags'].iteritems():
-				osm_tag (key, value)
+				osm_tag (key, value, action)  # Includes upload
 
-		osm_line ("  </%s>\n" % element['type'])
+		line = "  </%s>\n" % element['type']
+		if not(upload):
+			osm_line (line)
+		elif action != "output":
+			osm_upload ("  " + line)
+			osm_upload ("  </%s>\n" % action )
+			uploaded += 1
 
 		# Recursively output child/member objects if any
 
-		if not(action):
+		if manual or (action != "delete"):
 			if "nodes" in element:
 				for node in element['nodes']:
-					osm_element (find_element(node), action="outut")
+					osm_element (find_element(node), action="output")
 
 			if "members" in element:
 				for member in element['members']:
@@ -257,6 +335,9 @@ def process_municipality (municipality_id):
 	global file_out
 	global osm_id
 	global osm_children
+	global changeset_id
+	global changeset_data
+	global uploaded
 
 	start_time = time.time()
 
@@ -278,21 +359,18 @@ def process_municipality (municipality_id):
 	# Load existing addr nodes in OSM for municipality
 
 	message ("\nLoading existing addresses for %s %s from OSM Overpass... " % (municipality_id, municipality[municipality_id]))
-	query = '[out:json][timeout:60];(area[ref=%s][admin_level=7][place=municipality];)->.a;(node["addr:street"](area.a););out center meta;'\
+	query = '[out:json][timeout:60];(area[ref=%s][admin_level=7][place=municipality];)->.a;(nwr[~"addr:"~".*"](area.a););out center meta;'\
 			 % (municipality_id)
-	if debug:
-		query = query.replace('node["addr:street"]', 'nwr[~"addr:"~".*"]')  # Any addr tag
-
 	request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
 	file = open_url(request)
 	osm_data = json.load(file)
 	file.close()
 
-	# Sort list and make index to speed up matching. Also set flag if "pure" address node
-
 	street_index = dict()
 
 	if osm_data['elements']:
+
+		# Sort list and make index to speed up matching
 
 		osm_data['elements'].sort(key=addr_sort)
 		if "addr:street" in osm_data['elements'][0]['tags']:
@@ -304,7 +382,6 @@ def process_municipality (municipality_id):
 		i = -1
 		for element in osm_data['elements']:
 			i += 1
-			tag = element['tags']
 
 			if "addr:street" in element['tags']:
 				this_street = element['tags']['addr:street']
@@ -313,15 +390,34 @@ def process_municipality (municipality_id):
 					street_index[this_street] = {'from': i, 'to': 0}
 					last_street = this_street
 
-			# Flag if "pure" address node for improved speed later
-			if element['type'] == "node" and ('addr:housenumber' in tag) and ('addr:postcode' in tag) and ('addr:city' in tag)\
-				and ((len(tag) == 4) or ((len(tag) == 5) and ('addr:country' in tag))) :
-				element['pure'] = True
-			else:
-				element['pure'] = False
-
 		if last_street:
 			street_index[last_street]['to'] = i
+
+		# Set "clean" flag if only "addr:" tags, and no other tags
+		# Set "pure" flag if all of addr:street, addr:housenumber, addr:postcode, addr:city + optionaly addr:country are present, and no other tags
+
+		for element in osm_data['elements']:
+
+			if element['type'] == "node":
+				addr_count = 0
+				clean = True
+				pure = True
+
+				for tag in element['tags']:
+					if tag in ["addr:street", "addr:housenumber", "addr:postcode", "addr:city"]:
+						addr_count += 1
+					elif tag != "addr:country":
+						pure = False
+						if tag[0:5] != "addr:":
+							clean = False
+
+				element['clean'] = clean
+				element['pure'] = (clean and pure and (addr_count == 4))
+
+			else:
+				element['clean'] = False
+				element['pure'] = False
+
 
 	message ("%i" % (len(osm_data['elements'])))
 	log (len(osm_data['elements']))
@@ -347,9 +443,10 @@ def process_municipality (municipality_id):
 
 	message (" +%i parent objects" % (len(osm_parents['elements'])))
 	log (len(osm_parents['elements']))
-	osm_parents = None  # No longer needed
 
-	if debug:
+	# Recurse down to get any childen
+
+	if manual:
 		query = query.replace("<;out meta", ">;out meta")
 		request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
 		file = open_url(request)
@@ -371,13 +468,20 @@ def process_municipality (municipality_id):
 	csv_file = zip_file.open(filename + "/matrikkelenVegadresse.csv")
 	addr_table1, addr_table2 = tee(csv.DictReader(csv_file, delimiter=";"), 2)
 
-	# Open outut file
+	# Open output files
 
-	filename = "Address_import_%s_%s.osm" % (municipality_id, municipality_name)
-	filename = filename.replace(" ", "_")
-	file_out = open(filename, "w")
-	osm_line ("<?xml version='1.0' encoding='UTF-8'?>\n")
-	osm_line ("<osm version='0.6' generator='addr2osm v%s' upload='false'>\n" % version)
+	if upload:
+		changeset_id = "ZZZZZZZZ"  # Dummy changeset id to be replaced before upload
+		changeset_data = ""  # String which will contain changeset payload in osmChange xml format
+		osm_upload(action="open")
+		line = "<osmChange version='0.6' generator='addr2osm v%s'>\n" % version
+		osm_upload(line)
+	else:
+		filename = "Address_import_%s_%s.osm" % (municipality_id, municipality_name)
+		filename = filename.replace(" ", "_")
+		file_out = open(filename, "w")
+		osm_line ("<?xml version='1.0' encoding='UTF-8'?>\n")
+		osm_line ("<osm version='0.6' generator='addr2osm v%s' upload='false'>\n" % version)
 
 	# Initiate loop
 
@@ -388,6 +492,7 @@ def process_municipality (municipality_id):
 	modified = 0
 	deleted = 0
 	validated = 0
+	uploaded = 0
 
 	found = []  # Index list which Will contain True for matched adresses from Kartverket 
 
@@ -431,35 +536,36 @@ def process_municipality (municipality_id):
 
 			for osm_object in osm_data['elements'][ street_index[street]['from'] : street_index[street]['to'] + 1 ]:
 				found_index += 1
-				tag = osm_object['tags']
+				tags = osm_object['tags']
 
-				if (osm_object['pure']) and (housenumber == tag['addr:housenumber']) and (street == tag['addr:street'])\
-					 and (postcode == tag['addr:postcode']) and (city == tag['addr:city']):
+				if (osm_object['pure']) and (housenumber == tags['addr:housenumber']) and (street == tags['addr:street'])\
+					 and (postcode == tags['addr:postcode']) and (city == tags['addr:city']):
 
 					found[checked] = True
 					matched += 1
-					distance = math.sqrt((osm_object['lat'] - latitude) ** 2 + (osm_object['lon'] - longitude) ** 2)
+					distance = math.sqrt(((osm_object['lon'] - longitude)*(1.4416 - latitude*0.015719)) ** 2\
+							 + (osm_object['lat'] - latitude) ** 2)  # Linear approximation
 
 					# Modify object coordinates if it has been relocated. Keep the existing node if it has parents
 
-					if (distance > 0.00001) or ('addr:country' in tag):
+					if (distance > 0.00001) or ('addr:country' in tags):
 
 						if osm_object['id'] in parents:
-							modify_object = osm_object.copy()
+							modify_object = copy.deepcopy(osm_object)
 							modify_object['tags'] = {}
 							osm_element (modify_object, action="modify")  # Keep empty node if parents
 							modified += 1
 
 							osm_object['lat'] = latitude
 							osm_object['lon'] = longitude
-							result = osm_object['tags'].pop('addr:country', None)
-							osm_element (osm_object, action="new")  # Create new addr node
+							osm_object['tags'].pop('addr:country', None)
+							osm_element (osm_object, action="create")  # Create new addr node
 							added += 1
 
 						else:
 							osm_object['lat'] = latitude
 							osm_object['lon'] = longitude
-							result = osm_object['tags'].pop('addr:country', None)
+							osm_object['tags'].pop('addr:country', None)
 							osm_element (osm_object, action="modify")
 							modified += 1
 
@@ -469,8 +575,10 @@ def process_municipality (municipality_id):
 						if index['to'] >= found_index:
 							index['to'] -= 1
 
-					del osm_data['elements'][found_index]  # Remove match to speed up looping
+					del osm_data['elements'][found_index]  # Remove match to speed up looping later
 					break
+
+	# Report
 
 	message ('\rChecking addresses... %i\n' % (checked + 1))
 	message ('  Addresses with street name:               %i\n' % validated)
@@ -485,7 +593,10 @@ def process_municipality (municipality_id):
 	# "Pure" address node are nodes which contain all of addr:street, addr:housenumber, addr:postcode, addr:city and no other tags
 	# Remaining non-matched addresses are output as new address nodes
 
-	message ("\nCompleting file %s...\n" % filename)
+	if upload:
+		message ("\nCompleting changeset... ")
+	else:
+		message ("\nCompleting file %s..." % filename)
 
 	checked2 = -1
 	for row in addr_table2:
@@ -513,24 +624,21 @@ def process_municipality (municipality_id):
 
 				for osm_object in osm_data['elements']:
 					found_index += 1
-					if osm_object['pure']:
+					if osm_object['clean']:
 
-						distance = math.sqrt((osm_object['lat'] - latitude) ** 2 + (osm_object['lon'] - longitude) ** 2)
+						distance = math.sqrt(((osm_object['lon'] - longitude)*(1.4416 - latitude*0.015719)) ** 2\
+								 + (osm_object['lat'] - latitude) ** 2)  # Linear approximation
 
 						if distance < 0.0001:
-							tag = osm_object['tags']
-							if ('addr:housenumber' in tag) and ('addr:postcode' in tag) and ('addr:city' in tag):
-
-								keep_object = osm_object.copy()
-								del osm_data['elements'][found_index]
-								modify = True
-								break
+							keep_object = copy.deepcopy(osm_object)
+							del osm_data['elements'][found_index]
+							modify = True
+							break
 
 				# Output new addr node to file if no match, or modified addr node if close location match
  
 				if modify:
-					modify_object = keep_object.copy()
-					result = modify_object['tags'].pop('addr:country', None)
+					modify_object = copy.deepcopy(keep_object)
 				else:
 					modify_object = {}
 					modify_object['type'] = "node"
@@ -552,7 +660,7 @@ def process_municipality (municipality_id):
 						osm_element (keep_object, action="modify")  # Keeo empty node if parents
 						modified += 1
 
-						osm_element (modify_object, action="new")  # Create new addr node
+						osm_element (modify_object, action="create")  # Create new addr node
 						added += 1
 
 					else:
@@ -560,58 +668,162 @@ def process_municipality (municipality_id):
 						modified += 1
 
 				else:
-					osm_element (modify_object, action="new")
+					osm_element (modify_object, action="create")
 					added += 1
 
 	# 3rd pass:
 	# Output copy of remaining, non-matched addr objects to file (candidates for manual deletion of address tags and potentially also addr nodes)
-	# Delete remaining "pure" addr nodes (they got no match)
+	# Delete remaining "clean" addr nodes (they got no match).
+	# Remove addr tags from ways and relations except addr:housename (addr tags will be on separate addr nodes)
 
 	for osm_object in osm_data['elements']:
 
 		# Delete "pure" address node
-		if osm_object['pure']:
-			deleted += 1
-			osm_element (osm_object, action="delete")
-		elif debug:
+		if osm_object['clean']:
+
+			if osm_object['id'] in parents:
+				keep_object = copy.deepcopy(osm_object)
+				keep_object['tags'] = {}
+				osm_element (keep_object, action="modify")  # Keep empty node if parents
+				modified += 1
+			else:
+				deleted += 1
+				osm_element (osm_object, action="delete")
+
+		# Delete "addr:" tags for buildings, except "addr:housename" and POIs
+		elif (manual or upload) and ("building" in osm_object['tags']):
+
+			modify_object = copy.deepcopy(osm_object)
+			found_addr_tag = False
+			found_poi_tag = False
+			for tag in osm_object['tags']:
+				if (tag[0:5] == "addr:") and (tag != "addr:housename"):
+					modify_object['tags'].pop(tag)
+					found_addr_tag = True
+				elif (tag in ["amenity", "leisure", "tourism", "shop", "office", "craft", "club"]):
+					found_poi_tag = True
+
+			if found_addr_tag and not(found_poi_tag):
+				osm_element (modify_object, action="modify")
+			else:
+				osm_element (osm_object, action="output")
+
+		elif manual:
 			osm_element (osm_object, action="output")
 
-	osm_line ("</osm>")
-
-	# Wrap up and report
-
 	file_in.close()
-	file_out.close()
 
+	# Report
+
+	message ('\n')
 	message ('  New addresses:                            %i\n' % added)
 	message ('  Updated existing address nodes:           %i\n' % modified)
 	message ('  Deleted existing address nodes:           %i\n' % deleted)
+	message ('  Total changeset elements:                 %i\n' % uploaded)
 	message ('  Remaining addresses in OSM without match: %i\n' % (len(osm_data['elements']) - deleted))
+
+	# Upload changeset
+
+	uploaded_result = 0
+
+	if upload:
+		osm_upload ("</osmChange>")
+
+		if uploaded > 0:
+			if uploaded < 9900:  # Maximum upload is 10.000 elements
+
+				today_date = time.strftime("%Y-%m-%d", time.localtime())
+				changeset_xml = "<osm> <changeset> <tag k='created_by' v='addr2osm v%s' /> " % version
+				changeset_xml += "<tag k='comment' v='Address import for %s' /> " % municipality[municipality_id]
+				changeset_xml += "<tag k='source' v='Kartverket Matrikkelen Vegadresse' /> "
+				changeset_xml += "<tag k='source:date' v='%s' /> </changeset> </osm>" % today_date
+				changeset_xml = changeset_xml.encode('utf-8')
+
+				request = urllib2.Request(osm_api + "changeset/create", data=changeset_xml, headers=osm_request_header)
+				request.get_method = lambda: 'PUT'
+				file = open_url(request)  # Create changeset
+				changeset_id = file.read()
+				file.close()			
+
+				message ("\nUploading %i elements to OSM in changeset #%s..." % (uploaded, changeset_id))
+
+				changeset_data = changeset_data.replace("ZZZZZZZZ", changeset_id)
+				request = urllib2.Request(osm_api + "changeset/%s/upload" % changeset_id, data=changeset_data, headers=osm_request_header)
+				file = open_url(request)  # Write changeset in one go
+				file.close()
+
+				request = urllib2.Request(osm_api + "changeset/%s/close" % changeset_id, headers=osm_request_header)
+				request.get_method = lambda: 'PUT'
+				file = open_url(request)  # Close changeset
+				file.close()
+
+				uploaded_result = uploaded
+				uploaded = 0
+			else:
+				message ("\n\nCHANGESET TOO LARGE (%i) - UPLOAD MANUALLY\n\n" % uploaded)
+
+		osm_upload (action="close")  # Close log files
+
+	else:
+		osm_line ("</osm>")
+		file_out.close()
+
+	# Report time used
 
 	time_spent = time.time() - start_time
 	message ('\nTime %i seconds (%i addresses per second)\n\n' % (time_spent, validated / time_spent))
 
-	log (added, modified, deleted, len(osm_data['elements']) - deleted, int(time_spent), action="endline")
+	log (added, modified, deleted, len(osm_data['elements']) - deleted, uploaded_result, uploaded, int(time_spent), action="endline")
 
 
 # Main program
 
 if __name__ == '__main__':
 
-	global debug
+	global manual
 
 	total_start_time = time.time()
 	message ("\n-- addr2osm v%s --\n" % version)
 
 	if (len(sys.argv) == 2) and (len(sys.argv[1]) in [2,4]) and sys.argv[1].isdigit():
 		entity = sys.argv[1]
-		debug = False
-	elif (len(sys.argv) == 3) and (len(sys.argv[1]) in [2,4]) and sys.argv[1].isdigit() and (sys.argv[2] == "-manual"):
+		manual = False
+		upload = False
+	elif (len(sys.argv) == 3) and (len(sys.argv[1]) in [2,4]) and sys.argv[1].isdigit() and (sys.argv[2] in ["-manual", "-upload"]):
 		entity = sys.argv[1]
-		debug = True
+		if sys.argv[2] == "-manual":
+			manual = True
+			upload = False
+		elif sys.argv[2] == "-upload":
+			manual = False
+			upload = True
+		else:
+			manual = False
+			upload = False
 	else:
 		sys.exit ('Usage: Please type "python addr2osm.py <nnnn>" with 4 digit municipality number or 2 digit county number\n'\
-					+ '       Add "-manual" to get surplus address objects and DELETE tag\n')
+					+ '       Add "-manual" to get surplus address objects and DELETE tag\n'\
+					+ '       Add "-upload" to automatically upload changes to OSM\n')
+
+	# Check OSM username/password
+
+	if upload:
+		message ("This program will automatically upload adress changes to OSM\n")
+		username = raw_input ("Please enter OSM username: ")
+		password = raw_input ("Please enter OSM password: ")
+
+		authorization = username.strip() + ":" + password.strip()
+		authorization = "Basic " + authorization.encode('base64')[:-2]  # Omit newline
+		osm_request_header = request_header
+		osm_request_header.update({'Authorization': authorization})
+
+		request = urllib2.Request(osm_api + "permissions", headers=osm_request_header)
+		file = open_url(request)
+		permissions = file.read()
+		file.close()
+
+		if permissions.find("allow_write_api") < 0:  # Authorized to modify the map
+			sys.exit ("Wrong username/password or not authorized\n")
 
 	# Load municipality id's and names from Kartverket code list
 
@@ -636,7 +848,7 @@ if __name__ == '__main__':
 		if coun['status'] == "Gyldig":
 			county[coun['codevalue']] = coun['label'].strip()
 
-	# Load corrections from Github, skip the first 47 sami corrections
+	# Load corrections from Github
 
 	message ("Loading street name corrections from Github addr2osm/corrections.json\n")
 	filename = "https://raw.githubusercontent.com/NKAmapper/addr2osm/master/corrections.json"
@@ -666,7 +878,7 @@ if __name__ == '__main__':
 		else:
 			entity_name = county[entity]
 
-		message ("Generating addresses for %s..." % entity_name)
+		message ("Generating addresses for %s...\n" % entity_name)
 		log (action="open")
 		municipality_count = 0
 
