@@ -22,7 +22,7 @@ import copy
 from itertools import tee
 
 
-version = "0.6.0"
+version = "0.6.1"
 debug = True
 request_header = {"User-Agent": "addr2osm/" + version}
 
@@ -252,19 +252,10 @@ def osm_element (element, action):
 
 	if element:  # None if recurse down more than 1 level
 
-		action_text = ""
-		if action == "delete":
-			if manual:
-				element['tags']['DELETE'] = "yes"
-			else:
-				action_text = "action='delete' "
-		elif action == "modify":
-			action_text = "action='modify' "
-
 		if upload and (action != "output"):
 			osm_upload ("  <%s>\n" % action )
 
-		if action == "create":
+		if action == "create":  # Only nodes are created
 			osm_id -= 1
 			if upload:
 				line = "    <node id='%i' changeset='%s' version='1' lat='%f' lon='%f'>\n" % (osm_id, changeset_id, element['lat'], element['lon'])
@@ -274,6 +265,15 @@ def osm_element (element, action):
 				osm_line ("  " + line)
 
 		else:
+			action_text = ""
+			if action == "delete":
+				if manual:
+					element['tags']['DELETE'] = "yes"
+				else:
+					action_text = "action='delete' "
+			elif action == "modify":
+				action_text = "action='modify' "
+
 			line = u"  <%s id='%i' %stimestamp='%s' uid='%i' user='%s' visible='true' version='%i' changeset='%i'"\
 					% (element['type'], element['id'], action_text, element['timestamp'], element['uid'], escape(element['user']),\
 					element['version'], element['changeset'])
@@ -361,6 +361,8 @@ def process_municipality (municipality_id):
 	message ("\nLoading existing addresses for %s %s from OSM Overpass... " % (municipality_id, municipality[municipality_id]))
 	query = '[out:json][timeout:60];(area[ref=%s][admin_level=7][place=municipality];)->.a;(nwr[~"addr:"~".*"](area.a););out center meta;'\
 			 % (municipality_id)
+	if municipality_id == "2111":
+		query = query.replace("[ref=2111][admin_level=7][place=municipality]", "[name=Svalbard][admin_level=4]")
 	request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
 	file = open_url(request)
 	osm_data = json.load(file)
@@ -743,7 +745,7 @@ def process_municipality (municipality_id):
 				request.get_method = lambda: 'PUT'
 				file = open_url(request)  # Create changeset
 				changeset_id = file.read()
-				file.close()			
+				file.close()		
 
 				message ("\nUploading %i elements to OSM in changeset #%s..." % (uploaded, changeset_id))
 
