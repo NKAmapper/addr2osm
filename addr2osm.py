@@ -22,7 +22,7 @@ import copy
 from itertools import tee
 
 
-version = "0.6.1"
+version = "0.6.2"
 debug = True
 request_header = {"User-Agent": "addr2osm/" + version}
 
@@ -62,7 +62,7 @@ def osm_tag (key, value, action):
 			osm_upload ("  " + line)
 
 
-# Generate one oms line
+# Generate one osm line
 
 def osm_line (value):
 
@@ -118,7 +118,7 @@ def log (*args, **kwargs):
 		file_log = open(filename, "w")
 		output_text = "County;County name;Municipality;Municipality name;"\
 						+ "OSM addresses;OSM parents;OSM children;Kartverket addresses;Kartverket street names;"\
-						+ "Full match;Not full match;Corrected street names;New;Updated;Deleted;Remaining;Uploaded;Not uploadedTime\n"
+						+ "Full match;Not full match;Corrected street names;New;Updated;Deleted;Remaining;Uploaded;Not uploaded;Time\n"
 		file_log.write (output_text)
 	elif ("action" in kwargs) and (kwargs['action'] == "close"):
 		file_log.close()
@@ -351,6 +351,7 @@ def process_municipality (municipality_id):
 	length = municipality_name.find(" - ")
 	if length >= 0:
 		municipality_name = municipality_name[length + 3:]
+
 	if municipality_id == "1940":
 		municipality_name = "Gaivuotna"
 
@@ -775,7 +776,8 @@ def process_municipality (municipality_id):
 	time_spent = time.time() - start_time
 	message ('\nTime %i seconds (%i addresses per second)\n\n' % (time_spent, validated / time_spent))
 
-	log (added, modified, deleted, len(osm_data['elements']) - deleted, uploaded_result, uploaded, int(time_spent), action="endline")
+	log (added, modified, deleted, len(osm_data['elements']) - deleted, uploaded_result, uploaded)
+	log (int(time_spent), action="endline")
 
 
 # Main program
@@ -836,8 +838,11 @@ if __name__ == '__main__':
 
 	municipality = {}
 	for mun in municipality_data['containeditems']:
-		if (mun['status'] == "Gyldig") or (mun['codevalue'] == "2111"):  # Including Spitsbergen
-			municipality[mun['codevalue']] = mun['label'].strip()
+		if mun['status'] == "Gyldig":
+			municipality[mun['codevalue']] = mun['description'].replace(u"–","-").strip()
+	municipality['2111'] = "Spitsbergen"
+	municipality['5061'] = "Rindal"
+	del municipality['1567']  # Earlier Rindal entry
 
 	# Load county id's and names from Kartverket code list
 
@@ -894,3 +899,4 @@ if __name__ == '__main__':
 		time_spent = time.time() - total_start_time
 		message ('\nTotal time %i:%02d minutes\n\n' % (time_spent / 60, time_spent % 60))
 		log (action="close")
+		
