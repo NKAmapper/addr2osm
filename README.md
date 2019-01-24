@@ -1,6 +1,6 @@
 # addr2osm
 
-Compares addresses in OSM with latest address file from Kartverket for a given municipality and produces an osm update file
+Compares addresses in OSM with latest address file from Kartverket for a given municipality and either produces an OSM update file or uploads changes and additions directly to OSM.
 
 ### Usage
 
