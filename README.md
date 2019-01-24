@@ -4,7 +4,7 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
 
 ### Usage
 
-1. Run `addr2osm <municipality/county id> [-manual]`
+1. Run `addr2osm <municipality/county id> [-manual|-upload]`
    * Parameter:
      - 4 digit Norwegian municipality code, or
      - 2 digit county code for all municipalities within a county, or
@@ -43,15 +43,6 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
 * Street names are fixed when needed to get punctuation and spacing right. Errors in street names are also fixed according to translation table in [addr2osm/corrections.json](https://github.com/NKAmapper/addr2osm/blob/master/corrections.json).
 * Code is optimized to near linear complexity with performance at 500-1500 addresses/second in testing (slower with "-manual")
 * Uploads to OSM are done as one changeset per municipality. In case of errors the whole changeset will fail. If a municipality has more than 10.000 elements with changes it will have to be uploaded manually in JOSM.
-
-### Test run
-
-* OSM-filesfor all Norwegian municipalities are avilable [here](https://drive.google.com/open?id=1TzUggXrU0XP-TTxaXPsmRKSnMlR7622Y)
-* The files contain changes that would have been done for a real update + copy of remaining/surplus nodes, ways and realations which contain addr-tags but did not get a match
-* Objects which did get a clear address match and no other modifications are not included
-* For inspection only - please do not upload to OSM
-* Please see recommendations for searches above
-* Summary table: [Excel sheet](https://drive.google.com/open?id=10oF3YECS39WRrXiO_pzE9sxVtxH8yVOx)
 
 ### Data sources used
 
