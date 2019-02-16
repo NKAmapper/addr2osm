@@ -3,7 +3,7 @@
 
 # ADDR2OSM.PY
 # Loads addresses from Kartverket and creates an osm file with updates, alternatively uploads to OSM
-# Usage: "python addr2osm.py <kommunenummer> [-manual|-upload]""
+# Usage: "python addr2osm.py <kommune/fylkesnummer> [-manual|-upload]""
 # Creates "new_addresses_xxxx_xxxxxx.osm" file
 # Optional "-manual" parameter will add DELETE tag instead of deleting node + include surplus addr objects
 # Optional "-upload" parameter will ask for username/password and upload to OSM
@@ -22,7 +22,7 @@ import copy
 from itertools import tee
 
 
-version = "0.6.2"
+version = "0.6.3"
 debug = True
 request_header = {"User-Agent": "addr2osm/" + version}
 
@@ -341,19 +341,18 @@ def process_municipality (municipality_id):
 
 	start_time = time.time()
 
-	# Find municipality name for given municipality number from program parameter
-
-	municipality_name = municipality[municipality_id].replace(u"Æ","E").replace(u"Ø","O").replace(u"Å","A")\
-													.replace(u"æ","e").replace(u"ø","o").replace(u"å","a")
-	length = municipality_name.find(" i ")
-	if length >= 0:
-		municipality_name = municipality_name[0:length]
-	length = municipality_name.find(" - ")
-	if length >= 0:
-		municipality_name = municipality_name[length + 3:]
+	# Load Norwegian municipality name for given municipality number from parameter
 
 	if municipality_id == "1940":
 		municipality_name = "Gaivuotna"
+	elif municipality_id == "21":
+		municipality_name = "Svalbard"
+	else:
+		file = open_url("https://ws.geonorge.no/kommuneinfo/v1/kommuner/" + municipality_id)
+		municipality_data = json.load(file)
+		file.close()
+		municipality_name = municipality_data['kommunenavnNorsk'].replace(u"Æ","E").replace(u"Ø","O").replace(u"Å","A")\
+													.replace(u"æ","e").replace(u"ø","o").replace(u"å","a")
 
 	log (municipality_id[0:2], county[municipality_id[0:2]], municipality_id, municipality[municipality_id])
 
@@ -362,8 +361,8 @@ def process_municipality (municipality_id):
 	message ("\nLoading existing addresses for %s %s from OSM Overpass... " % (municipality_id, municipality[municipality_id]))
 	query = '[out:json][timeout:60];(area[ref=%s][admin_level=7][place=municipality];)->.a;(nwr[~"addr:"~".*"](area.a););out center meta;'\
 			 % (municipality_id)
-	if municipality_id == "2111":
-		query = query.replace("[ref=2111][admin_level=7][place=municipality]", "[name=Svalbard][admin_level=4]")
+	if municipality_id == "21":
+		query = query.replace("[ref=21][admin_level=7][place=municipality]", "[name=Svalbard][admin_level=4]")
 	request = urllib2.Request("https://overpass-api.de/api/interpreter?data=" + urllib.quote(query), headers=request_header)
 	file = open_url(request)
 	osm_data = json.load(file)
@@ -829,31 +828,28 @@ if __name__ == '__main__':
 		if permissions.find("allow_write_api") < 0:  # Authorized to modify the map
 			sys.exit ("Wrong username/password or not authorized\n")
 
-	# Load municipality id's and names from Kartverket code list
+	# Load municipality id's and names from Kartverket api
 
 	message ("Loading municipality and county codes from Kartverket\n")
-	file = open_url("https://register.geonorge.no/api/sosi-kodelister/kommunenummer.json?")
+	file = open_url("https://ws.geonorge.no/kommuneinfo/v1/kommuner")
 	municipality_data = json.load(file)
 	file.close()
 
 	municipality = {}
-	for mun in municipality_data['containeditems']:
-		if mun['status'] == "Gyldig":
-			municipality[mun['codevalue']] = mun['description'].replace(u"–","-").strip()
-	municipality['2111'] = "Spitsbergen"
-	municipality['5061'] = "Rindal"
-	del municipality['1567']  # Earlier Rindal entry
+	for mun in municipality_data:
+		municipality[mun['kommunenummer']] = mun['kommunenavn'].strip()
+	municipality['21'] = "Svalbard"
 
-	# Load county id's and names from Kartverket code list
+	# Load county id's and names from Kartverket api
 
-	file = open_url("https://register.geonorge.no/api/sosi-kodelister/fylkesnummer.json?")
+	file = open_url("https://ws.geonorge.no/kommuneinfo/v1/fylker")
 	county_data = json.load(file)
 	file.close()
 
 	county = {}
-	for coun in county_data['containeditems']:
-		if coun['status'] == "Gyldig":
-			county[coun['codevalue']] = coun['label'].strip()
+	for coun in county_data:
+		county[coun['fylkesnummer']] = coun['fylkesnavn'].strip()
+	county['21'] = "Svalbard"
 
 	# Load corrections from Github
 
