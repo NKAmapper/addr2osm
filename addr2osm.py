@@ -22,7 +22,7 @@ import copy
 from itertools import tee
 
 
-version = "0.6.3"
+version = "0.6.5"
 debug = True
 request_header = {"User-Agent": "addr2osm/" + version}
 
@@ -218,7 +218,7 @@ def fix_street_name (name):
 				word = 0
 
 		elif name[i] == " ":
-			if  word == 1:
+			if  (word == 1) and (name[i-1] != "-"):
 				if name[i + 2] in [" ","."]:  # O G Hauges veg
 					new_name = new_name + "."
 				else:
@@ -343,9 +343,7 @@ def process_municipality (municipality_id):
 
 	# Load Norwegian municipality name for given municipality number from parameter
 
-	if municipality_id == "1940":
-		municipality_name = "Gaivuotna"
-	elif municipality_id == "21":
+	if municipality_id == "21":
 		municipality_name = "Svalbard"
 	else:
 		file = open_url("https://ws.geonorge.no/kommuneinfo/v1/kommuner/" + municipality_id)
@@ -887,7 +885,7 @@ if __name__ == '__main__':
 
 		for municipality_id in sorted(municipality.iterkeys()):
 
-			if (entity == "99") or (municipality_id[0:2] == entity):
+			if (entity == "99") and (municipality_id >= "") or (municipality_id[0:2] == entity):
 				process_municipality (municipality_id)
 				municipality_count += 1
 
@@ -895,4 +893,3 @@ if __name__ == '__main__':
 		time_spent = time.time() - total_start_time
 		message ('\nTotal time %i:%02d minutes\n\n' % (time_spent / 60, time_spent % 60))
 		log (action="close")
-		
