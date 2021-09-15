@@ -8,7 +8,7 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
    * Parameter:
      - 4 digit Norwegian municipality code, or
      - 2 digit county code for all municipalities within a county, or
-     - "99" for all municipalities in Norway
+     - "00" for all municipalities in Norway
    * Will produce OSM file with the name *Address import "code" "municipality".osm*
    * Optional parameters:
      - `-manual` for including copy of "surplus" address nodes, ways and relations not touched by the program + for including *DELETE* tag instead of deleting node for easier verification
