@@ -35,12 +35,8 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
 * Address nodes will be relocated according to the lates Kartverket coordinates, if necessary. The implication is that there is no need to move address nodes manually (they will be relocated during the next import update anyway).
 * Remaining/not matched "pure" address nodes (without any other tags) will be reused (nearby location) or deleted.
 * The *addr:country* tag will be disregarded and removed.
-* Address tags on buildings will be removed unless the building is also tagged with one of *amenity*, *leisure*, *tourism*, *shop*, *office*, *craft* and *club*.
-* The following elements will not be touched:
-  - Ways and relations, except buildings as described above.
-  - Nodes containing other tags or incomplete address tags (not all 4 addr tags).
-  - Nodes which are members of ways or relations (however complete address tags from those nodes will be moved to new address nodes).
-* Street names are fixed when needed to get punctuation and spacing right. Errors in street names are also fixed according to translation table in [addr2osm/corrections.json](https://github.com/NKAmapper/addr2osm/blob/master/corrections.json).
+* Duplicated address tags on buildings and other objects will be removed unless the object is also tagged with a *note=** containing "*addr*".
+* Street names will be adjusted to get punctuation and spacing right. Errors in street names are also adjusted according to translation table in [addr2osm/corrections.json](https://github.com/NKAmapper/addr2osm/blob/master/corrections.json).
 * Code is optimized to near linear complexity with performance at 500-1500 addresses/second in testing (slower with "-manual").
 * Uploads to OSM are done as one changeset per municipality. In case of errors the whole changeset will fail. If a municipality has more than 10.000 elements with changes it will have to be uploaded manually in JOSM.
 
