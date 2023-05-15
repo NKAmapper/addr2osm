@@ -22,7 +22,7 @@ from itertools import tee
 from xml.etree import ElementTree as ET
 
 
-version = "2.0.0"
+version = "2.0.1"
 
 debug = False
 
@@ -433,6 +433,7 @@ def process_municipality (municipality_id):
 	deleted = 0
 	validated = 0
 	corrected = 0
+	uploaded = 0
 
 	found = []  # Index list which Will contain True for matched adresses from Kartverket 
 
@@ -689,9 +690,7 @@ def init_root():
 	global osm_root		# XML of all addresses in municipality
 	global upload_root	# XML to be uploaded to OSM
 	global save_root 	# XML of all deleted addresses during run
-	global uploaded 	# Number of elements to be uploaded
 
-	uploaded = 0
 	osm_root = ET.Element("osm", version="0.6", generator="addr2osm v%s" % version, upload="false")
 	upload_root = ET.Element("osmChange", version="0.6", generator="nsr2osm")
 	if "save_root" not in globals():
@@ -747,7 +746,7 @@ def upload_changeset(entity_id, entity_name, changeset_count):
 			return True
 
 		else:
-			message ("\n\nCHANGESET TOO LARGE (%i) - UPLOAD MANUALLY WITH JOSM\n\n" % uploaded)
+			message ("\n\nCHANGESET TOO LARGE (%i) - UPLOAD MANUALLY WITH JOSM\n\n" % changeset_count)
 			not_uploaded.append("%s %s" % (entity_id, entity_name))
 
 	if not upload and changeset_count > 0 or upload and changeset_count >= 9900 or debug:
