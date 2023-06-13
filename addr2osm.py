@@ -22,7 +22,7 @@ from itertools import tee
 from xml.etree import ElementTree as ET
 
 
-version = "2.0.1"
+version = "2.1.0"
 
 debug = False
 
@@ -144,7 +144,8 @@ def addr_sort (element):
 
 
 
-# Fix street name initials/dots and spacing. Return also True if anything changed.
+# Fix street name initials/dots and spacing + corrections table.
+# Same algorithm as in nvdb2osm.
 # Examples:
 #   Dr.Gregertsens vei -> Dr. Gregertsens vei
 #   Arne M Holdens vei -> Arne M. Holdens vei
@@ -184,7 +185,8 @@ def fix_street_name (name):
 				word = 0
 
 		elif name[i] == " ":
-			if word == 1 and name[i-1] not in ["-", "/", "Å"] and name[i+1] not in ["-", "/"]:  # Avoid "Rørsethornet P - plass", "Skjomenveien - Elvegård", "Å gate"
+			# Avoid "Elvemo / Bávttevuolbállggis", "Skjomenveien - Elvegård", "Bakken i Lysefjorden", "Kristian 4 gate"
+			if word == 1 and name[i-1] not in ["-", "/", "i"] and not name[i-1].isdigit():
 				if name[i + 2] in [" ", "."]:  # Example "O G Hauges veg"
 					new_name = new_name + "."
 				else:
@@ -201,7 +203,16 @@ def fix_street_name (name):
 
 	new_name = new_name + name[i:i + 3]
 
+	# Check correction table for last part of name
+
+	split_name = new_name.split()
+	for i in range(1, len(split_name)):
+		if split_name[i] in ending_corrections:
+			split_name[i] = split_name[i].lower()
+			new_name = " ".join(split_name)
+
 	if name != new_name:
+		all_used_corrections[ name ] = new_name
 		return new_name
 	else:
 		return name
@@ -560,28 +571,28 @@ def process_municipality (municipality_id):
 
 				street = fix_street_name(street) 
 
-				found_index = -1
-				modify = False
-
-				# Loop existing addr objects to find first close match with "pure" address node, to be modified
+				# Loop existing addr objects to find best close match with "pure" address node, to be modified
 				# Consider the match close if distance is less than 10 meters
 
-				for osm_object in osm_data['elements']:
-					found_index += 1
+				best_distance = 10  # Minimum meters
+				modify = False
+
+				for i, osm_object in enumerate(osm_data['elements']):
 					if osm_object['clean']:
 
 						distance = compute_distance((longitude, latitude), (osm_object['lon'], osm_object['lat']))
 
-						if distance < 10.0:  # meters
-							keep_object = copy.deepcopy(osm_object)
-							del osm_data['elements'][ found_index ]
+						if distance < best_distance:
+							keep_object = osm_object
+							found_index = i
+							best_distance = distance
 							modify = True
-							break
 
 				# Output new addr node to file if no match, or modified addr node if close location match
  
 				if modify:
 					modify_object = copy.deepcopy(keep_object)
+					del osm_data['elements'][ found_index ]
 				else:
 					modify_object = {}
 					modify_object['type'] = "node"
@@ -755,7 +766,7 @@ def upload_changeset(entity_id, entity_name, changeset_count):
 		out_filename = "address_import_%s_%s.osm" % (entity_id, entity_name)
 		out_filename = out_filename.replace(" ", "_")
 		osm_tree.write(out_filename, encoding="utf-8", method="xml", xml_declaration=True)
-		message ("Saved to file '%s'\n" % out_filename)
+		message ("Saved %i updates to file '%s'\n" % (changeset_count, out_filename))
 
 	return False
 
@@ -851,12 +862,20 @@ if __name__ == '__main__':
 
 	# Load corrections from Github
 
-	message ("Loading street name corrections from Github 'addr2osm/corrections.json'\n")
+	message ("Loading street name corrections from addr2osm on Github\n")
 	filename = "https://raw.githubusercontent.com/NKAmapper/addr2osm/master/corrections.json"
 	file = open_url(filename)
 	corrections = json.load(file)
 	file.close()
+
 	used_corrections = set()  # Will contain corrections used
+
+	filename = "https://raw.githubusercontent.com/NKAmapper/addr2osm/master/corrections_ending.json"
+	file = open_url(filename)
+	ending_corrections = json.load(file)
+	file.close()
+
+	all_used_corrections = {}
 
 	# Process either one municipality or all municipalities in one county.
 	# Uploading to OSM either per municipality or per county.
@@ -931,12 +950,13 @@ if __name__ == '__main__':
 
 	# Report corrections used
 
-	if used_corrections and entity == "00":
-		filename = "addr_corrections.json"
+	if entity == "00":
+		not_used = used_corrections.difference(corrections.keys())
+		if not_used:
+			message ("Not used corrrections: %s\n\n" % ", ".join(not_used))
+
+	if len(entity) == 2:
+		filename = "addr_corrections_all_used.json"
 		file = open(filename, "w")
-		file.write("{\n")
-		for street in sorted(used_corrections):
-			file.write('  "%-30s "%s",\n' % (street + '":', corrections[ street ]))  # Format in two colums
-		file.write("}\n")
+		json.dump(dict(sorted(all_used_corrections.items())), file, indent=2, ensure_ascii=False)
 		file.close()
-		message ("\n\n")
