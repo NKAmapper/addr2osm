@@ -41,6 +41,21 @@ Compares addresses in OSM with latest address file from Kartverket for a given m
 * A separate file with all new and deleted addresses is saved. Useful for discovering buildings and higheways to be created or deleted.
 * A separate file with used address corrections is saved. Useful for updating the correction json file in Github every other year.
 
+### Changelog ###
+
+2.1:
+  - Improved code for fixing street names.
+  - Modify street name endings to lower case according to GitHub tabel, e.g. "Gate" -> "gate".
+  - Replace closest unused existing addr node when street name is not matching.
+
+2.0:
+  - Python 3 support.
+  - ElementTree implementation.
+  - Upload by county (alternatively by municipality).
+  - Improved handling of addr duplicates. Opt-out through note=* tag.
+  - All new/deleted adresses saved in separate file (for reviewing new/deleted buildings or roads).
+  - Used street name corrections logged to file.
+
 ### Data sources used
 
 * [Kartverket SOSI municipality codes](https://register.geonorge.no/sosi-kodelister/kommunenummer)
