@@ -1,6 +1,6 @@
 # addr2osm
 
-Compares addresses in OSM for Norway and Sweden.
+Updates addresses in OSM for Norway and Sweden.
 
 ### Usage
 
