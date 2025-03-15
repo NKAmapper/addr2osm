@@ -27,7 +27,7 @@ warnings.filterwarnings(
 )
 
 
-version = "0.2.0"
+version = "0.2.1"
 
 debug = False
 
@@ -731,7 +731,7 @@ def merge_addresses (municipality_id):
 				elif "source" not in tag and tag != "created_by": 
 					new_tags[ tag ] = osm_object['tags'][ tag ]
 					if ("fixme" not in tag and "FIXME" not in tag
-							and tag not in ["addr:door", "addr:flats", "addr:floot", "addr:housename"]):
+							and tag not in ["addr:door", "addr:flats", "addr:floor", "addr:housename"]):
 						found_other_tag = True
 
 			found_note = ("note" in osm_object['tags'] and "addr" in osm_object['tags']['note'])  # Opt-out note found
