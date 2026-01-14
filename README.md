@@ -67,6 +67,6 @@ Norway:
 * [Lantmäteriet product page https://geotorget.lantmateriet.se/dokumentation/GEODOK/15/latest.html]
 * [Norway OSM import plan https://wiki.openstreetmap.org/wiki/Import/Catalogue/Address_import_for_Norway]
 * [Kartverket SOSI municipality codes](https://register.geonorge.no/sosi-kodelister/kommunenummer)
-* [Kartverket street address files](https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenVegadresse/CSV/)
+* [Kartverket street address files](https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenAdresse/CSV/)
 * [Overpass API](http://overpass-api.de)
 * [addr2osm/corrections.json](https://github.com/NKAmapper/addr2osm/blob/master/corrections.json) - Street name corrections, based on [Github addrnodeimport street name corrections](https://github.com/rubund/addrnodeimport/blob/master/xml/corrections.xml)

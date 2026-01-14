@@ -22,7 +22,7 @@ from itertools import tee
 from xml.etree import ElementTree as ET
 
 
-version = "2.1.0"
+version = "2.1.1"
 
 debug = False
 
@@ -425,15 +425,15 @@ def process_municipality (municipality_id):
 
 	# Load latest address file for municipality from Kartverket
 
-	filename = "Basisdata_%s_%s_4258_MatrikkelenVegadresse_CSV" % (municipality_id, municipality[ municipality_id ])
+	filename = "Basisdata_%s_%s_4258_MatrikkelenAdresse_CSV" % (municipality_id, municipality[ municipality_id ])
 	filename = filename.replace("Æ","E").replace("Ø","O").replace("Å","A").replace("æ","e").replace("ø","o").replace("å","a")
 	filename = filename.replace(" ", "_")
 
 	message ("\nLoading address file '%s' from Kartverket\n" % filename)
 
-	file_in = open_url("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenVegadresse/CSV/" + filename + ".zip")
+	file_in = open_url("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenAdresse/CSV/" + filename + ".zip")
 	zip_file = zipfile.ZipFile(BytesIO(file_in.read()))
-	csv_file = zip_file.open(filename + "/matrikkelenVegadresse.csv")
+	csv_file = zip_file.open(filename + "/matrikkelenAdresse.csv")
 	addr_table1, addr_table2 = tee(csv.DictReader(TextIOWrapper(csv_file, "utf-8"), delimiter=";"), 2)
 
 	# Initiate loop
