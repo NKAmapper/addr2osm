@@ -12,17 +12,17 @@ import json
 import urllib.request, urllib.parse, urllib.error
 import zipfile
 from io import BytesIO, TextIOWrapper
+import os.path
 import sys
 import csv
 import math
 import time
 import copy
-import base64
 from itertools import tee
 from xml.etree import ElementTree as ET
 
 
-version = "2.1.0"
+version = "2.2.0"
 
 debug = False
 
@@ -39,6 +39,10 @@ changeset_area = "county"  # Changeset partiion - "county" or "municipality". No
 first_municipality = ""  # Set to 4 digit municipality id to start iteration from a specfic municipality
 
 osm_api = "https://api.openstreetmap.org/api/0.6/"  # Production database
+
+overpass_api = "https://overpass-api.de/api/interpreter"
+
+token_filename = "~/Google Drive/Min disk/diverse/Adresser/addr2osm_token.txt"  # OAuth2 access token for OSM
 
 
 
@@ -274,7 +278,14 @@ def generate_element (element, action):
 		uploaded += 1
 		osm_element.set('action', "modify")  # Override action for XML file
 		if upload:
-			action_element = ET.Element(action)
+
+			# Do not upload if object has already been modified in this upload session (objects across municipality border)
+			if action == "modify":
+				for upload_element in upload_root:
+					if upload_element[0].attrib['id'] == osm_element.attrib['id']:
+						return
+
+			action_element = ET.Element(action)  # Add extra level for action
 			action_element.append(osm_element)
 			upload_root.append(action_element)
 			if action in ["create", "delete"] and save_new_deleted:
@@ -310,7 +321,7 @@ def load_osm_addresses (municipality_id):
 	count = 0
 	osm_data = { 'elements': [] }
 	while not osm_data['elements'] and count < 5:  # Load could be empty from Overpass
-		request = urllib.request.Request("https://overpass-api.de/api/interpreter?data=" + urllib.parse.quote(query), headers=request_header)
+		request = urllib.request.Request(overpass_api + "?data=" + urllib.parse.quote(query), headers=request_header)
 		file = open_url(request)
 		osm_data = json.load(file)
 		file.close()
@@ -375,7 +386,7 @@ def load_osm_addresses (municipality_id):
 	# Recurse up to get any parents
 
 	query = query.replace("out center meta", "<;out meta")
-	request = urllib.request.Request("https://overpass-api.de/api/interpreter?data=" + urllib.parse.quote(query), headers=request_header)
+	request = urllib.request.Request(overpass_api + "?data=" + urllib.parse.quote(query), headers=request_header)
 	file = open_url(request)
 	osm_parents = json.load(file)
 	file.close()
@@ -398,7 +409,7 @@ def load_osm_addresses (municipality_id):
 
 	if not upload or debug:
 		query = query.replace("<;out meta", ">;out meta")
-		request = urllib.request.Request("https://overpass-api.de/api/interpreter?data=" + urllib.parse.quote(query), headers=request_header)
+		request = urllib.request.Request(overpass_api + "?data=" + urllib.parse.quote(query), headers=request_header)
 		file = open_url(request)
 		osm_children = json.load(file)
 		file.close()
@@ -425,15 +436,15 @@ def process_municipality (municipality_id):
 
 	# Load latest address file for municipality from Kartverket
 
-	filename = "Basisdata_%s_%s_4258_MatrikkelenVegadresse_CSV" % (municipality_id, municipality[ municipality_id ])
+	filename = "Basisdata_%s_%s_4258_MatrikkelenAdresse_CSV" % (municipality_id, municipality[ municipality_id ])
 	filename = filename.replace("Æ","E").replace("Ø","O").replace("Å","A").replace("æ","e").replace("ø","o").replace("å","a")
 	filename = filename.replace(" ", "_")
 
 	message ("\nLoading address file '%s' from Kartverket\n" % filename)
 
-	file_in = open_url("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenVegadresse/CSV/" + filename + ".zip")
+	file_in = open_url("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenAdresse/CSV/" + filename + ".zip")
 	zip_file = zipfile.ZipFile(BytesIO(file_in.read()))
-	csv_file = zip_file.open(filename + "/matrikkelenVegadresse.csv")
+	csv_file = zip_file.open(filename + "/matrikkelenAdresse.csv")
 	addr_table1, addr_table2 = tee(csv.DictReader(TextIOWrapper(csv_file, "utf-8"), delimiter=";"), 2)
 
 	# Initiate loop
@@ -722,7 +733,7 @@ def upload_changeset(entity_id, entity_name, changeset_count):
 			changeset_root = ET.Element("osm")
 			changeset_element = ET.Element("changeset")
 			changeset_element.append(ET.Element("tag", k="comment", v="Address import update for %s" % entity_name))
-			changeset_element.append(ET.Element("tag", k="source", v="Kartverket: Matrikkelen Vegadresse"))
+			changeset_element.append(ET.Element("tag", k="source", v="Kartverket: Matrikkelen Adresse"))
 			changeset_element.append(ET.Element("tag", k="source:date", v=today_date))
 			changeset_root.append(changeset_element)
 			changeset_xml = ET.tostring(changeset_root, encoding='utf-8', method='xml')
@@ -795,15 +806,18 @@ def indent_tree(elem, level=0):
 # Get authorization for later uploading to OSM.
 # Returns request header for uploading.
 
-def get_password():
+def get_token():
 
-	message ("This program will automatically upload bus stop changes to OSM\n")
-	password = input ("Please enter OSM password for '%s' user: " % username)
+	full_filename = os.path.expanduser(token_filename)
+	if os.path.isfile(full_filename):
+		file = open(full_filename)
+		token = file.read()
+		file.close()
+	else:
+		sys.exit("Please store OAuth2 token in '%s' file\n" % token_filename)
 
-	authorization = username.strip() + ":" + password.strip()
-	authorization = "Basic " + base64.b64encode(authorization.encode()).decode()
-	osm_request_header = request_header
-	osm_request_header.update({'Authorization': authorization})
+	osm_request_header = request_header.copy()
+	osm_request_header.update({'Authorization': 'Bearer ' + token})
 
 	request = urllib.request.Request(osm_api + "permissions", headers=osm_request_header)
 	file = open_url(request)
@@ -811,7 +825,11 @@ def get_password():
 	file.close()
 
 	if "allow_write_api" not in permissions:  # Authorized to modify the map
-		sys.exit ("Wrong username/password or not authorized\n")
+		sys.exit ("Wrong OAuth2 token or missing OSM authorization\n")
+
+	confirm = input ("Please confirm automatic upload of address changes to OSM (Y/N): ")
+	if confirm.lower() != "y":
+		sys.exit("Not confirmed\n")
 
 	return osm_request_header
 
@@ -835,7 +853,7 @@ if __name__ == '__main__':
 	# Check OSM username/password
 
 	if upload:
-		osm_request_header = get_password()
+		osm_request_header = get_token()
 
 	# Load municipality id's and names from Kartverket api
 
