@@ -12,7 +12,6 @@ Updates addresses in OSM for Norway and Sweden.
    * Will produce OSM file with the name *address "code" "municipality".osm*, ncluding copy of "surplus" address nodes + for including *DELETE* tag for easier verification
    * Optional parameter:
      - `-upload` for uploading directly to OSM - will ask for OSM user name and password
-     - `-source` for just producing file with addresses (no OSM data)
 
   
 2. Inspect the file in JOSM:
@@ -48,6 +47,11 @@ Sweden:
   - Created version for Sweden.
 
 Norway:
+2.2:
+ - Implement OAuth2 for OSM uploading.
+ - Switch from Vegadresse to Adresse source at Kartverket Matrikkelen.
+ - Avoid rare case of double uploading if address is outside of municipality border.
+
 2.1:
   - Improved code for fixing street names.
   - Modify street name endings to lower case according to GitHub tabel, e.g. "Gate" -> "gate".
